@@ -8,51 +8,43 @@ This package provides a robust, feature-rich wrapper around the RabbitMQ AMQP cl
 
 To use this package, import it in your Go code:
 
-~~~go
-import "product-service/pkg/pubsub"
-~~~
+```go
+import "github.com/LordWestcott/rabbit"
+```
 
 Ensure that the RabbitMQ client is also installed:
 
-~~~bash
+```bash
 go get github.com/streadway/amqp
-~~~
+```
 
 ## Basic Usage
 
 ### Initializing the PubSub Manager
 
-~~~go
-import (
-    "product-service/pkg/logs"
-    "product-service/pkg/pubsub"
-)
-
-// Create a logger
-logger := logs.NewServiceLogger("my-service")
-
+```go
 // Create a PubSub manager with a channel pool of size 3
-pubsubManager := pubsub.NewPubSubManager(logger, 3)
+pubsubManager := rabbit.NewPubSubManager(3)
 
 // Start the manager with the RabbitMQ connection URL
 err := pubsubManager.Start("amqp://guest:guest@localhost:5672/")
 if err != nil {
-    logger.Fatalf("Failed to connect to RabbitMQ: %v", err)
+    log.Fatalf("Failed to connect to RabbitMQ: %v", err)
 }
 
 // Gracefully close the connection when done
 defer pubsubManager.Close()
-~~~
+```
 
 ### Publishing Messages
 
-~~~go
+```go
 // Define a message payload struct
 type OrderCreated struct {
-    OrderID    string `json:"order_id"`
-    CustomerID string `json:"customer_id"`
+    OrderID    string  `json:"order_id"`
+    CustomerID string  `json:"customer_id"`
     Amount     float64 `json:"amount"`
-    Timestamp  int64 `json:"timestamp"`
+    Timestamp  int64   `json:"timestamp"`
 }
 
 // Create a message
@@ -66,13 +58,13 @@ order := OrderCreated{
 // Publish the message
 err := pubsubManager.PublishMessage("orders", "order.created", order)
 if err != nil {
-    logger.Errorf("Failed to publish message: %v", err)
+    log.Errorf("Failed to publish message: %v", err)
 }
-~~~
+```
 
 ### Consuming Messages
 
-~~~go
+```go
 // Define a message handler function - a returned error will NAck the Message, and it will be requeued.
 func handleOrderCreated(payload []byte) error {
     var order OrderCreated
@@ -93,30 +85,30 @@ listenerId, err := pubsubManager.Listen(
 )
 
 if err != nil {
-    logger.Errorf("Failed to start listener: %v", err)
+    log.Errorf("Failed to start listener: %v", err)
 }
-~~~
+```
 
 ## Configuration Options
 
 ### Advanced PubSubManager Setup
 
-~~~go
+```go
 // Create a PubSubManager with custom options
-opts := pubsub.PubSubManagerOptions{
+opts := rabbit.PubSubManagerOptions{
     MaxReconnectAttempts: 20,              // Maximum reconnection attempts
     ReconnectBackoff:     time.Second * 5, // Initial backoff duration
     PublishConfirms:      true,            // Enable publisher confirms
 }
 
-pubsubManager := pubsub.NewPubSubManagerWithOptions(logger, 5, opts)
-~~~
+pubsubManager := rabbit.NewPubSubManagerWithOptions(5, opts)
+```
 
 ### Queue Configuration
 
-~~~go
+```go
 // Define queue configuration
-queueConfig := pubsub.QueueConfig{
+queueConfig := rabbit.QueueConfig{
     Name:                 "high-priority-orders",
     Durable:              true,
     AutoDelete:           false,
@@ -130,15 +122,15 @@ queueConfig := pubsub.QueueConfig{
 // Declare the queue
 queueName, err := pubsubManager.DeclareQueueWithConfig(queueConfig)
 if err != nil {
-    logger.Errorf("Failed to declare queue: %v", err)
+    log.Errorf("Failed to declare queue: %v", err)
 }
 
 // Bind queue to exchange
 err = pubsubManager.BindQueue(queueName, "order.priority.high", "orders")
 if err != nil {
-    logger.Errorf("Failed to bind queue: %v", err)
+    log.Errorf("Failed to bind queue: %v", err)
 }
-~~~
+```
 
 ## Advanced Features
 
@@ -146,9 +138,9 @@ if err != nil {
 
 For high-throughput scenarios where you need to publish many messages efficiently:
 
-~~~go
+```go
 // Create a batch publisher with batch size 100 and maximum interval 5 seconds
-batchPublisher := pubsub.NewBatchPublisher(
+batchPublisher := rabbit.NewBatchPublisher(
     pubsubManager,
     "metrics", 
     "system.cpu", 
@@ -168,56 +160,36 @@ for i := 0; i < 1000; i++ {
 
 // Close the batch publisher to ensure all messages are sent
 batchPublisher.Close()
-~~~
-
-### Message TTL and Priority
-
-~~~go
-// Publish a message with 30 second TTL
-pubsubManager.PublishMessageWithTTL(
-    "notifications", 
-    "user.login", 
-    loginEvent, 
-    30000, // TTL in milliseconds
-)
-
-// Publish a high-priority message
-pubsubManager.PublishWithPriority(
-    "orders", 
-    "order.urgent", 
-    urgentOrder, 
-    9, // Priority (0-9, higher is more prioritized)
-)
-~~~
+```
 
 ### Setting QoS (Prefetch)
 
-~~~go
+```go
 // Set prefetch to 10 messages per consumer
 err := pubsubManager.SetQoS(10)
 if err != nil {
-    logger.Errorf("Failed to set QoS: %v", err)
+    log.Errorf("Failed to set QoS: %v", err)
 }
-~~~
+```
 
 ## Resilience Features
 
 ### Health Checking
 
-~~~go
+```go
 // Get current health status
 status := pubsubManager.HealthCheck()
 
 if !status.Connected {
-    logger.Warn("Not connected to RabbitMQ broker")
+    log.Warn("Not connected to RabbitMQ broker")
 }
 
 if status.CircuitState == "open" {
-    logger.Warn("Circuit breaker is open, requests being rejected")
+    log.Warn("Circuit breaker is open, requests being rejected")
 }
 
 fmt.Printf("Active listeners: %d\n", status.ActiveListeners)
-~~~
+```
 
 ### The Circuit Breaker Pattern
 
@@ -225,36 +197,25 @@ The package implements a circuit breaker that automatically prevents overwhelmin
 
 When too many message publishing attempts fail consecutively, the circuit will "open" and return errors immediately without attempting to publish. After a timeout period, the circuit transitions to "half-open" state allowing a test request. If successful, normal operation resumes.
 
-## Architecture
-
-The package is split into several logical components:
-
-1. **Connection Management** - Handles connection to RabbitMQ, reconnection, and channel pooling
-2. **Publishers** - Message publishing with configurable options
-3. **Consumers** - Message consumption and handler management
-4. **Circuit Breaker** - Failure detection and service protection
-5. **Batch Publishing** - Efficiently handle high-volume publishing
-6. **Queue Management** - Queue declaration and binding
-
 ## Error Handling
 
 The package provides comprehensive error handling. Most functions return errors that should be checked. Additionally, failed message publishing is logged, and the circuit breaker protects against cascading failures.
 
-~~~go
+```go
 // Example of proper error handling
 err := pubsubManager.PublishMessage("orders", "order.created", order)
 if err != nil {
     if err.Error() == "circuit breaker open" {
         // Handle service degradation gracefully
-        logger.Warn("Message rejected by circuit breaker, system in degraded state")
+        log.Warn("Message rejected by circuit breaker, system in degraded state")
         
         // Store message for later retry or use fallback mechanism
         saveForRetry(order)
     } else {
-        logger.Errorf("Failed to publish message: %v", err)
+        log.Errorf("Failed to publish message: %v", err)
     }
 }
-~~~
+```
 
 ## Automatic Recovery
 
@@ -274,5 +235,4 @@ These features ensure your application remains operational even during network i
 3. Use batch publishing for high-volume scenarios
 4. Implement appropriate error handling, especially for circuit breaker events
 5. Configure reconnection parameters based on your environment's reliability
-6. Use message TTLs for time-sensitive information
-
+6. Use appropriate QoS settings to control message flow

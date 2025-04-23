@@ -32,6 +32,9 @@ if err != nil {
     log.Fatalf("Failed to connect to RabbitMQ: %v", err)
 }
 
+// Initialize Topics.
+pubsub.InitTopic("test.messages")
+
 // Gracefully close the connection when done
 defer pubsubManager.Close()
 ```
@@ -55,6 +58,9 @@ order := OrderCreated{
     Timestamp:  time.Now().Unix(),
 }
 
+// Initialize Topics.
+pubsub.InitTopic("orders")
+
 // Publish the message
 err := pubsubManager.PublishMessage("orders", "order.created", order)
 if err != nil {
@@ -75,6 +81,9 @@ func handleOrderCreated(payload []byte) error {
     fmt.Printf("Received order: %s for $%.2f\n", order.OrderID, order.Amount)
     return nil
 }
+
+// Initialize Topics.
+pubsub.InitTopic("orders")
 
 // Start listening for messages
 listenerId, err := pubsubManager.Listen(

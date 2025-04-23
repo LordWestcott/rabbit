@@ -61,7 +61,7 @@ order := OrderCreated{
 // Initialize Topics.
 pubsub.InitTopic("orders")
 
-// Publish the message
+// Publish the message              topic     routing-key
 err := pubsubManager.PublishMessage("orders", "order.created", order)
 if err != nil {
     log.Errorf("Failed to publish message: %v", err)

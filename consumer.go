@@ -7,12 +7,30 @@ import (
 	"github.com/streadway/amqp"
 )
 
+// ListenOpts is the options for listening to a topic.
+// TopicName is the name of the topic to listen to.
+// RoutingKey is the routing key to listen to.
+// QueueName is the name of the queue to listen to.
+// Handler is the handler to process the messages.
+// ConcurrentHandlers is the number of concurrent handlers to run.
+type ListenOpts struct {
+	TopicName          string
+	RoutingKey         string
+	QueueName          string
+	Handler            MessageHandler
+	ConcurrentHandlers int
+}
+
 // Listen starts listening for messages on a topic with a specific routing key pattern
 // and processes them with the provided handler function.
-// Returns a listenerId that can be used to stop listening.
-func (p *PubSubManager) Listen(topicName, routingKey, queueName string, handler MessageHandler) (string, error) {
+func (p *PubSubManager) Listen(opts ListenOpts) (string, error) {
+	// Set default concurrent handlers to 1 if invalid value provided
+	if opts.ConcurrentHandlers <= 0 {
+		opts.ConcurrentHandlers = 1
+	}
+
 	// Create a unique listener ID
-	listenerID := fmt.Sprintf("%s-%s-%s", topicName, routingKey, queueName)
+	listenerID := fmt.Sprintf("%s-%s-%s", opts.TopicName, opts.RoutingKey, opts.QueueName)
 
 	// Check if listener already exists
 	p.listenersMutex.Lock()
@@ -23,7 +41,7 @@ func (p *PubSubManager) Listen(topicName, routingKey, queueName string, handler 
 	p.listenersMutex.Unlock()
 
 	// Ensure the topic exists
-	if err := p.InitTopic(topicName); err != nil {
+	if err := p.InitTopic(opts.TopicName); err != nil {
 		return "", err
 	}
 
@@ -35,12 +53,12 @@ func (p *PubSubManager) Listen(topicName, routingKey, queueName string, handler 
 
 	// Declare a queue to receive messages
 	q, err := ch.QueueDeclare(
-		queueName, // Queue name
-		true,      // Durable
-		false,     // Delete when unused
-		false,     // Exclusive
-		false,     // No-wait
-		nil,       // Arguments
+		opts.QueueName, // Queue name
+		true,           // Durable
+		false,          // Delete when unused
+		false,          // Exclusive
+		false,          // No-wait
+		nil,            // Arguments
 	)
 	if err != nil {
 		ch.Close()
@@ -49,11 +67,11 @@ func (p *PubSubManager) Listen(topicName, routingKey, queueName string, handler 
 
 	// Bind the queue to the exchange with the routing key
 	err = ch.QueueBind(
-		q.Name,     // Queue name
-		routingKey, // Routing key
-		topicName,  // Exchange
-		false,      // No-wait
-		nil,        // Arguments
+		q.Name,          // Queue name
+		opts.RoutingKey, // Routing key
+		opts.TopicName,  // Exchange
+		false,           // No-wait
+		nil,             // Arguments
 	)
 	if err != nil {
 		ch.Close()
@@ -66,18 +84,20 @@ func (p *PubSubManager) Listen(topicName, routingKey, queueName string, handler 
 	// Store the listener info
 	p.listenersMutex.Lock()
 	p.listeners[listenerID] = &listener{
-		topicName:  topicName,
-		routingKey: routingKey,
-		queueName:  queueName,
+		topicName:  opts.TopicName,
+		routingKey: opts.RoutingKey,
+		queueName:  opts.QueueName,
 		channel:    ch,
-		handler:    handler,
+		handler:    opts.Handler,
 		ctx:        listenerCtx,
 		cancel:     listenerCancel,
 	}
 	p.listenersMutex.Unlock()
 
-	// Start consuming messages
-	go p.consumeMessages(listenerCtx, ch, queueName, handler, listenerID)
+	// Start consuming messages with specified number of concurrent handlers
+	for i := 0; i < opts.ConcurrentHandlers; i++ {
+		go p.consumeMessages(listenerCtx, ch, opts.QueueName, opts.Handler, listenerID)
+	}
 
 	return listenerID, nil
 }
@@ -109,7 +129,12 @@ func (p *PubSubManager) consumeMessages(ctx context.Context, ch *amqp.Channel, q
 				p.listenersMutex.Unlock()
 
 				if listener != nil {
-					p.rebuildListeners()
+					// Only trigger rebuild from one goroutine to avoid multiple rebuilds
+					p.listenersMutex.Lock()
+					if listener.channel == ch {
+						p.rebuildListeners()
+					}
+					p.listenersMutex.Unlock()
 				}
 				return nil
 			}
@@ -262,13 +287,6 @@ func (p *PubSubManager) GetListenerInfo(listenerID string) (map[string]string, e
 		"routingKey": listener.routingKey,
 		"queueName":  listener.queueName,
 	}, nil
-}
-
-// ListenWithContext starts a listener that receives context in the handler
-func (p *PubSubManager) ListenWithContext(topicName, routingKey, queueName string, handler MessageHandlerWithContext) (string, error) {
-	// Similar to Listen but passes context to handler
-	// This is a stub implementation that should be filled out with proper implementation
-	return "", nil
 }
 
 // SetQoS sets the prefetch count for RabbitMQ channels

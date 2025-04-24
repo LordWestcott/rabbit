@@ -20,10 +20,6 @@ type message struct {
 // On error, the message is nacked and requeued
 type MessageHandler func(payload []byte) error
 
-// MessageHandlerWithContext is a function that processes received messages with context
-// On error, the message is nacked and requeued
-type MessageHandlerWithContext func(ctx context.Context, payload []byte) error
-
 // listener represents a topic subscription
 type listener struct {
 	topicName  string

@@ -85,17 +85,21 @@ func handleOrderCreated(payload []byte) error {
 // Initialize Topics.
 pubsub.InitTopic("orders")
 
-// Start listening for messages
-listenerId, err := pubsubManager.Listen(
-    "orders",          // topic/exchange name
-    "order.created.*", // routing key pattern
-    "order-service",   // queue name
-    handleOrderCreated, // handler function
-)
+// Define listener options
+listenOpts := rabbit.ListenOpts{
+    TopicName:          "orders",           // topic/exchange name
+    RoutingKey:         "order.created.*",  // routing key pattern
+    QueueName:          "order-service",    // queue name
+    Handler:            handleOrderCreated, // handler function
+    ConcurrentHandlers: 3,                  // run 3 concurrent handlers - defaults to 1 if not set.
+}
 
+// Start listening for messages
+listenerId, err := pubsubManager.Listen(listenOpts)
 if err != nil {
     log.Errorf("Failed to start listener: %v", err)
 }
+defer pubsub.StopListener(listenerId)
 ```
 
 ## Configuration Options
@@ -169,6 +173,23 @@ for i := 0; i < 1000; i++ {
 
 // Close the batch publisher to ensure all messages are sent
 batchPublisher.Close()
+```
+
+### Concurrent Message Handling
+
+You can configure multiple concurrent handlers for a single queue to improve throughput:
+
+```go
+// Configure 5 concurrent handlers for high-volume processing
+listenOpts := rabbit.ListenOpts{
+    TopicName:          "metrics",
+    RoutingKey:         "system.#",
+    QueueName:          "metrics-processor",
+    Handler:            processMetric,
+    ConcurrentHandlers: 5,  // Process messages with 5 concurrent goroutines
+}
+
+listenerId, err := pubsubManager.Listen(listenOpts)
 ```
 
 ### Setting QoS (Prefetch)
@@ -245,3 +266,4 @@ These features ensure your application remains operational even during network i
 4. Implement appropriate error handling, especially for circuit breaker events
 5. Configure reconnection parameters based on your environment's reliability
 6. Use appropriate QoS settings to control message flow
+7. For high-volume queues, use concurrent handlers to improve throughput
